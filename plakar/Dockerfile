@@ -46,7 +46,7 @@ RUN useradd -u 10001 -m -s /bin/bash plakar
 COPY --from=build /out/plakar /usr/local/bin/plakar
 COPY --from=build --chown=10001:10001 /home/plakar/.local/share/plakar /home/plakar/.local/share/plakar
 COPY --from=build --chown=10001:10001 /home/plakar/.cache/plakar/plugins /home/plakar/.cache/plakar/plugins
-COPY plakar-backup.sh /usr/local/bin/plakar-backup
+COPY --chmod=755 plakar-backup.sh /usr/local/bin/plakar-backup
 
 USER plakar
 WORKDIR /home/plakar
