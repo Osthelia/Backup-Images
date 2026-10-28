@@ -22,7 +22,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 RUN useradd -u 10001 -m -s /bin/bash plakar
 
 COPY --from=build /go/bin/plakar /usr/local/bin/plakar
-COPY --from=build /pkgs/*.ptar /opt/plakar/
+# `pkg build` writes the archives in mode 600 (root): unreadable by the plakar user without --chmod.
+# 755, not 644: --chmod also applies to the created /opt/plakar directory, which needs +x to be listed.
+COPY --from=build --chmod=755 /pkgs/*.ptar /opt/plakar/
 COPY plakar-backup.sh /usr/local/bin/plakar-backup
 
 USER plakar
