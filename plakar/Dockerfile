@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends make git \
 WORKDIR /src
 RUN git clone --depth=1 --branch "${PLAKAR_VERSION}" https://github.com/PlakarKorp/plakar.git \
     && cd plakar && go get ${GO_UPGRADES} && go mod tidy \
-    && CGO_ENABLED=0 go build -trimpath -o /out/plakar .
+    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/plakar .
 
 RUN git clone --depth=1 --filter=blob:none --sparse --branch "s3/${S3_VERSION}" \
         https://github.com/PlakarKorp/integrations.git s3 \
@@ -26,6 +26,13 @@ RUN git clone --depth=1 --filter=blob:none --sparse --branch "s3/${S3_VERSION}" 
     && for p in "s3 ${S3_VERSION}" "postgresql ${POSTGRESQL_VERSION}"; do \
          set -- $p; \
          (cd "$1/$1" && go get ${GO_UPGRADES} && go mod tidy && make \
+           && if [ "$1" = postgresql ]; then \
+                awk '/^  - type:/{flush(); buf=$0 "\n"; inblk=1; next} inblk && /^[^ ]/{flush(); inblk=0} inblk{buf=buf $0 "\n"; next} {print} \
+                     function flush(){ if (buf != "" && buf !~ /executable: postgresql(AWS|Bin)/) printf "%s", buf; buf="" } END{flush()}' \
+                  manifest.yaml > manifest.tmp && mv manifest.tmp manifest.yaml \
+                && rm -f postgresqlAWSExporter postgresqlAWSImporter postgresqlBinImporter; \
+              fi \
+           && find . -maxdepth 1 -type f -perm -u+x -exec strip {} + \
            && /out/plakar pkg create -out "/pkgs/$1_$2_linux_amd64.ptar" manifest.yaml "$2") || exit 1; \
        done
 
