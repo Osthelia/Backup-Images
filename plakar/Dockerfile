@@ -1,6 +1,9 @@
 # Plakar + integrations s3 and postgresql, with the Postgres 17 client tools (pg_dump, pg_dumpall, pg_restore, psql).
 # The prebuilt integrations on plakar.io require a Plakar account: they are built from source here, which needs none.
+# Target `files` (ghcr.io/osthelia/plakar-files): Alpine, s3 integration only, for S3 buckets and directories.
 FROM golang:1.26-bookworm AS build
+
+ENV CGO_ENABLED=0
 
 ARG PLAKAR_VERSION=v1.1.7
 
@@ -15,7 +18,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends make git \
 WORKDIR /src
 RUN git clone --depth=1 --branch "${PLAKAR_VERSION}" https://github.com/PlakarKorp/plakar.git \
     && cd plakar && go get ${GO_UPGRADES} && go mod tidy \
-    && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/plakar .
+    && go build -trimpath -ldflags="-s -w" -o /out/plakar .
 
 RUN git clone --depth=1 --filter=blob:none --sparse --branch "s3/${S3_VERSION}" \
         https://github.com/PlakarKorp/integrations.git s3 \
@@ -36,8 +39,26 @@ RUN git clone --depth=1 --filter=blob:none --sparse --branch "s3/${S3_VERSION}" 
            && /out/plakar pkg create -out "/pkgs/$1_$2_linux_amd64.ptar" manifest.yaml "$2") || exit 1; \
        done
 
-RUN mkdir -p /home/plakar \
-    && for p in /pkgs/*.ptar; do HOME=/home/plakar /out/plakar pkg add -allow-unsigned "$p" > /dev/null; done
+RUN mkdir -p /home/plakar /home/files \
+    && for p in /pkgs/*.ptar; do HOME=/home/plakar /out/plakar pkg add -allow-unsigned "$p" > /dev/null; done \
+    && HOME=/home/files /out/plakar pkg add -allow-unsigned /pkgs/s3_*.ptar > /dev/null
+
+FROM alpine:3.22 AS files
+
+RUN apk upgrade --no-cache && apk add --no-cache bash ca-certificates curl \
+    && adduser -u 10001 -D -s /bin/bash plakar
+
+COPY --from=build /out/plakar /usr/local/bin/plakar
+COPY --from=build --chown=10001:10001 /home/files/.local/share/plakar /home/plakar/.local/share/plakar
+COPY --from=build --chown=10001:10001 /home/files/.cache/plakar/plugins /home/plakar/.cache/plakar/plugins
+COPY --chmod=755 plakar-backup.sh /usr/local/bin/plakar-backup
+
+USER plakar
+WORKDIR /home/plakar
+
+RUN plakar -disable-security-check && plakar pkg list
+
+ENTRYPOINT ["/usr/local/bin/plakar-backup"]
 
 FROM debian:bookworm-slim
 

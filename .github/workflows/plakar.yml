@@ -34,6 +34,7 @@ jobs:
         run: |
           PLAKAR_VERSION=$(sed -nE 's/^ARG PLAKAR_VERSION=(.*)/\1/p' plakar/Dockerfile)
           echo "tags=ghcr.io/osthelia/plakar:${{ github.sha }},ghcr.io/osthelia/plakar:${PLAKAR_VERSION},ghcr.io/osthelia/plakar:latest" >> "$GITHUB_OUTPUT"
+          echo "files_tags=ghcr.io/osthelia/plakar-files:${{ github.sha }},ghcr.io/osthelia/plakar-files:${PLAKAR_VERSION},ghcr.io/osthelia/plakar-files:latest" >> "$GITHUB_OUTPUT"
 
       - name: Build image for scan
         uses: docker/build-push-action@v7
@@ -42,10 +43,26 @@ jobs:
           load: true
           tags: local/plakar:scan
 
+      - name: Build files image for scan
+        uses: docker/build-push-action@v7
+        with:
+          context: plakar
+          target: files
+          load: true
+          tags: local/plakar-files:scan
+
       - name: Scan image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           image-ref: local/plakar:scan
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Scan files image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: local/plakar-files:scan
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: "1"
@@ -56,3 +73,11 @@ jobs:
           context: plakar
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+
+      - name: Build & Push files image
+        uses: docker/build-push-action@v7
+        with:
+          context: plakar
+          target: files
+          push: true
+          tags: ${{ steps.meta.outputs.files_tags }}
