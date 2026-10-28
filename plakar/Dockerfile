@@ -4,36 +4,53 @@ FROM golang:1.26-bookworm AS build
 
 ARG PLAKAR_VERSION=v1.1.7
 
+ARG S3_VERSION=v1.1.10
+ARG POSTGRESQL_VERSION=v1.1.2
+
+ARG GO_UPGRADES="golang.org/x/net@latest golang.org/x/crypto@latest golang.org/x/text@latest golang.org/x/mod@latest google.golang.org/grpc@latest github.com/klauspost/compress@latest"
+
 RUN apt-get update && apt-get install -y --no-install-recommends make git \
     && rm -rf /var/lib/apt/lists/*
 
-RUN go install github.com/PlakarKorp/plakar@${PLAKAR_VERSION}
+WORKDIR /src
+RUN git clone --depth=1 --branch "${PLAKAR_VERSION}" https://github.com/PlakarKorp/plakar.git \
+    && cd plakar && go get ${GO_UPGRADES} && go mod tidy \
+    && CGO_ENABLED=0 go build -trimpath -o /out/plakar .
 
-# `pkg build` takes the latest release of each integration (s3 v1.1.10 and postgresql v1.1.2 on 2026-10-28).
-WORKDIR /pkgs
-RUN plakar pkg build s3 && plakar pkg build postgresql
+RUN git clone --depth=1 --filter=blob:none --sparse --branch "s3/${S3_VERSION}" \
+        https://github.com/PlakarKorp/integrations.git s3 \
+    && git clone --depth=1 --filter=blob:none --sparse --branch "postgresql/${POSTGRESQL_VERSION}" \
+        https://github.com/PlakarKorp/integrations.git postgresql \
+    && git -C s3 sparse-checkout set s3 && git -C postgresql sparse-checkout set postgresql \
+    && mkdir -p /pkgs \
+    && for p in "s3 ${S3_VERSION}" "postgresql ${POSTGRESQL_VERSION}"; do \
+         set -- $p; \
+         (cd "$1/$1" && go get ${GO_UPGRADES} && go mod tidy && make \
+           && /out/plakar pkg create -out "/pkgs/$1_$2_linux_amd64.ptar" manifest.yaml "$2") || exit 1; \
+       done
 
-FROM postgres:17-bookworm
+RUN mkdir -p /home/plakar \
+    && for p in /pkgs/*.ptar; do HOME=/home/plakar /out/plakar pkg add -allow-unsigned "$p" > /dev/null; done
 
-# ca-certificates: without them, TLS to the S3 endpoint fails (x509: certificate signed by unknown authority).
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
-    && rm -rf /var/lib/apt/lists/*
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends ca-certificates curl postgresql-common \
+    && /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y \
+    && apt-get install -y --no-install-recommends postgresql-client-17 \
+    && rm -rf /var/lib/apt/lists/* \
+    && rm -f /etc/ssl/private/ssl-cert-snakeoil.key /etc/ssl/certs/ssl-cert-snakeoil.pem
 
 RUN useradd -u 10001 -m -s /bin/bash plakar
 
-COPY --from=build /go/bin/plakar /usr/local/bin/plakar
-# `pkg build` writes the archives in mode 600 (root): unreadable by the plakar user without --chmod.
-# 755, not 644: --chmod also applies to the created /opt/plakar directory, which needs +x to be listed.
-COPY --from=build --chmod=755 /pkgs/*.ptar /opt/plakar/
+COPY --from=build /out/plakar /usr/local/bin/plakar
+COPY --from=build --chown=10001:10001 /home/plakar/.local/share/plakar /home/plakar/.local/share/plakar
+COPY --from=build --chown=10001:10001 /home/plakar/.cache/plakar/plugins /home/plakar/.cache/plakar/plugins
 COPY plakar-backup.sh /usr/local/bin/plakar-backup
 
 USER plakar
 WORKDIR /home/plakar
 
-# Integrations are installed in ~/.cache/plakar/plugins at build time, so each run starts immediately.
-# The security check queries the releases feed on every run: the image is updated through this repository instead.
-RUN plakar -disable-security-check \
-    && for p in /opt/plakar/*.ptar; do plakar pkg add -allow-unsigned "$p" > /dev/null; done \
-    && plakar pkg list
+RUN plakar -disable-security-check && plakar pkg list
 
 ENTRYPOINT ["/usr/local/bin/plakar-backup"]
