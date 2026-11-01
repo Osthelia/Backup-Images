@@ -24,3 +24,10 @@ plakar at @backup restore -to @dst <snapshot>
 ```
 
 Without `recreate=true` the restore fails when the database does not exist yet.
+
+### Retention (`plakar-prune`)
+
+Second entry point of both images (`/usr/local/bin/plakar-prune`, used by the `plakar-prune` CronJob): removes the snapshots
+older than `PLAKAR_RETENTION` (30d) from every store of `PLAKAR_STORES`, then runs `plakar maintenance` and a `check -latest`.
+A dry run unless `PLAKAR_PRUNE_APPLY=1`. Needs a key allowed to delete (not the backup key). Refuses to touch a store that has no
+snapshot newer than the retention. Header of `plakar/plakar-prune.sh` lists the variables.

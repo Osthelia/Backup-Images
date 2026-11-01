@@ -52,6 +52,7 @@ COPY --from=build /out/plakar /usr/local/bin/plakar
 COPY --from=build --chown=10001:10001 /home/files/.local/share/plakar /home/plakar/.local/share/plakar
 COPY --from=build --chown=10001:10001 /home/files/.cache/plakar/plugins /home/plakar/.cache/plakar/plugins
 COPY --chmod=755 plakar-backup.sh /usr/local/bin/plakar-backup
+COPY --chmod=755 plakar-prune.sh /usr/local/bin/plakar-prune
 
 USER plakar
 WORKDIR /home/plakar
@@ -75,6 +76,7 @@ COPY --from=build /out/plakar /usr/local/bin/plakar
 COPY --from=build --chown=10001:10001 /home/plakar/.local/share/plakar /home/plakar/.local/share/plakar
 COPY --from=build --chown=10001:10001 /home/plakar/.cache/plakar/plugins /home/plakar/.cache/plakar/plugins
 COPY --chmod=755 plakar-backup.sh /usr/local/bin/plakar-backup
+COPY --chmod=755 plakar-prune.sh /usr/local/bin/plakar-prune
 
 USER plakar
 WORKDIR /home/plakar
